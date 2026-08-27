@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Study timer + video</title>
+  <style>
+    :root {
+      --ink: #e8e6e1;
+      --dim: rgba(232, 230, 225, 0.72);
+      --bar: #c4a574;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #000;
+      color: var(--ink);
+      font-family: "Source Serif 4", "Iowan Old Style", Palatino, serif;
+      overflow: hidden;
+    }
+    .bg {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+    .veil {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      background: linear-gradient(to top, rgba(0,0,0,0.45), rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.2));
+      pointer-events: none;
+    }
+    .stage {
+      position: relative;
+      z-index: 2;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 2rem 2rem 12vh;
+      text-shadow: 0 2px 24px rgba(0,0,0,0.55);
+    }
+    .eyebrow {
+      font-family: system-ui, sans-serif;
+      font-size: 0.75rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin: 0 0 1rem;
+    }
+    .face {
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(4rem, 14vw, 9rem);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      margin: 0;
+    }
+    .bar {
+      width: min(36rem, 80vw);
+      height: 3px;
+      background: rgba(255,255,255,0.18);
+      margin: 1.75rem 0 1.5rem;
+    }
+    .bar span {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--bar);
+    }
+    .actions {
+      display: flex;
+      gap: 0.6rem;
+    }
+    button {
+      font: 650 0.9rem/1 system-ui, sans-serif;
+      padding: 0.55rem 1rem;
+      border: 1px solid rgba(255,255,255,0.28);
+      background: rgba(20,24,29,0.55);
+      color: var(--ink);
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+    }
+    button:hover { border-color: var(--bar); }
+    .hint {
+      font-family: system-ui, sans-serif;
+      font-size: 0.8rem;
+      color: var(--dim);
+      margin: 1.25rem 0 0;
+      text-align: center;
+      max-width: 36rem;
+    }
+    body.is-record .actions,
+    body.is-record .hint { visibility: hidden; }
+    body.is-done .face { color: var(--bar); }
+  </style>
+</head>
+<body>
+  <video class="bg" id="bg" src="../renders/flow-lamp-loop-60s.mp4" muted playsinline></video>
+  <div class="veil" aria-hidden="true"></div>
+  <div class="stage">
+    <p class="eyebrow" id="label">Focus</p>
+    <p class="face" id="face" aria-live="polite">01:00</p>
+    <div class="bar" aria-hidden="true"><span id="bar"></span></div>
+    <div class="actions">
+      <button type="button" id="start">Start</button>
+      <button type="button" id="reset">Reset</button>
+    </div>
+    <p class="hint">Click Start (timer + video sync). For a clean capture use ?record=1 then fullscreen + Shift-Command-5.</p>
+  </div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var total = parseInt(params.get("seconds"), 10);
+      if (!total || total < 1) total = 60;
+      if (params.get("record") === "1") document.body.classList.add("is-record");
+      var autostart = params.get("autostart") === "1";
+
+      var remaining = total;
+      var running = false;
+      var last = 0;
+      var raf = 0;
+      var face = document.getElementById("face");
+      var bar = document.getElementById("bar");
+      var startBtn = document.getElementById("start");
+      var label = document.getElementById("label");
+      var bg = document.getElementById("bg");
+      var mins = Math.round(total / 60);
+      label.textContent = mins + "-minute focus";
+
+      function pad(n) { return String(n).padStart(2, "0"); }
+      function format(t) {
+        var s = Math.max(0, Math.floor(t));
+        var m = Math.floor(s / 60);
+        var r = s % 60;
+        return pad(m) + ":" + pad(r);
+      }
+      function paint() {
+        face.textContent = format(remaining);
+        bar.style.width = ((total - remaining) / total) * 100 + "%";
+      }
+      function stop() {
+        running = false;
+        if (raf) cancelAnimationFrame(raf);
+        startBtn.textContent = "Start";
+        bg.pause();
+      }
+      function tick(now) {
+        if (!running) return;
+        remaining -= (now - last) / 1000;
+        last = now;
+        if (remaining <= 0) {
+          remaining = 0;
+          paint();
+          stop();
+          document.body.classList.add("is-done");
+          return;
+        }
+        paint();
+        raf = requestAnimationFrame(tick);
+      }
+      function begin() {
+        if (running) { stop(); return; }
+        if (remaining <= 0) remaining = total;
+        document.body.classList.remove("is-done");
+        running = true;
+        last = performance.now();
+        startBtn.textContent = "Pause";
+        bg.currentTime = Math.min(bg.currentTime, 0.05);
+        bg.play().catch(function () {});
+        raf = requestAnimationFrame(tick);
+      }
+      startBtn.addEventListener("click", begin);
+      document.getElementById("reset").addEventListener("click", function () {
+        stop();
+        remaining = total;
+        bg.currentTime = 0;
+        document.body.classList.remove("is-done");
+        paint();
+      });
+      paint();
+      if (autostart) {
+        bg.addEventListener("loadeddata", function once() {
+          bg.removeEventListener("loadeddata", once);
+          begin();
+        });
+        if (bg.readyState >= 2) begin();
+      }
+    })();
+  </script>
+</body>
+</html>
